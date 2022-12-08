@@ -1,79 +1,73 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    hash::Hash,
 };
 
-fn transpose<T: Clone>(vector: Vec<Vec<T>>) -> Vec<Vec<T>> {
-    let len = vector.first().unwrap().len();
-    vector
-        .into_iter()
-        .fold(vec![Vec::<T>::new(); len], |mut acc, e| {
-            acc.iter_mut()
-                .zip(e.into_iter())
-                .for_each(|(v, c)| v.push(c));
-            acc
-        })
-        .into_iter()
-        .map(|v| v.into_iter().collect::<Vec<T>>())
-        .collect()
-}
-
-fn parse_input<T: From<u8>>(input: &str) -> Vec<Vec<T>> {
-    input
+fn parse_input<T: From<u8>>(input: &str) -> (Vec<T>, usize) {
+    let x_len = input.lines().next().expect("Invalid input").len();
+    let vec = input
         .lines()
-        .map(str::as_bytes)
-        .map(|line| {
-            line.iter()
-                .map(|c| T::from(*c - b'0'))
-                .collect::<Vec<T>>()
-        })
-        .collect::<Vec<Vec<T>>>()
+        .flat_map(str::as_bytes)
+        .map(|c| T::from(c - b'0'))
+        .collect::<Vec<T>>();
+    (vec, x_len)
 }
 
-fn maybe_insert_and_update_max<T: Eq + Hash, U: PartialOrd<U>>(
-    set: &mut HashSet<T>,
-    max: &mut U,
-    val: U,
-    to_insert: T,
-) {
-    if &val > max {
-        *max = val;
-        set.insert(to_insert);
+fn row_iter_indexed<T>(
+    vec: &[T],
+    row_length: usize,
+) -> impl Iterator<Item = impl Iterator<Item = ((usize, usize), &T)> + DoubleEndedIterator> + Clone
+{
+    vec.chunks(row_length)
+        .enumerate()
+        .map(|(j, row)| row.iter().enumerate().map(move |(i, v)| ((i, j), v)))
+}
+
+fn column_iter_indexed<T>(
+    vec: &[T],
+    row_length: usize,
+) -> impl Iterator<Item = impl Iterator<Item = ((usize, usize), &T)> + DoubleEndedIterator> + Clone
+{
+    (0..row_length).map(move |i| {
+        vec.iter()
+            .skip(i)
+            .step_by(row_length)
+            .enumerate()
+            .map(move |(j, v)| ((i, j), v))
+    })
+}
+
+fn find_visible<'a>(
+    row: impl Iterator<Item = ((usize, usize), &'a i16)> + 'a,
+) -> Vec<(usize, usize)> {
+    let mut visible = Vec::<(usize, usize)>::new();
+    let mut max = -1;
+    for ((i, j), tree) in row {
+        if tree > &max {
+            max = *tree;
+            visible.push((i, j));
+        }
     }
+    visible
 }
 
 fn part1(input: &str) -> usize {
-    let parsed = parse_input::<i16>(input);
+    let (parsed, x_len) = parse_input::<i16>(input);
     let mut visible = HashSet::<(usize, usize)>::new();
 
-    for (j, row) in parsed.iter().enumerate() {
-        let mut max = -1i16;
-        let mut max_rev = -1i16;
-        let len = row.len() - 1;
-        // Right
-        for (i, tree) in row.iter().enumerate() {
-            maybe_insert_and_update_max(&mut visible, &mut max, *tree, (i, j));
-        }
-        // Left
-        for (i, tree) in row.iter().rev().enumerate() {
-            maybe_insert_and_update_max(&mut visible, &mut max_rev, *tree, (len - i, j));
-        }
-    }
-    let parsed = transpose(parsed);
-    for (i, col) in parsed.iter().enumerate() {
-        let mut max = -1i16;
-        let mut max_rev = -1i16;
-        let len = col.len() - 1;
-        // Down
-        for (j, tree) in col.iter().enumerate() {
-            maybe_insert_and_update_max(&mut visible, &mut max, *tree, (i, j));
-        }
-        // Up
-        for (j, tree) in col.iter().rev().enumerate() {
-            maybe_insert_and_update_max(&mut visible, &mut max_rev, *tree, (i, len - j));
-        }
-    }
+    let rows = row_iter_indexed(&parsed, x_len);
+    let columns = column_iter_indexed(&parsed, x_len);
+
+    let right = rows.clone().flat_map(find_visible);
+    let left = rows.map(Iterator::rev).flat_map(find_visible);
+    let down = columns.clone().flat_map(find_visible);
+    let up = columns.map(Iterator::rev).flat_map(find_visible);
+
+    visible.extend(right);
+    visible.extend(left);
+    visible.extend(up);
+    visible.extend(down);
+
     visible.len()
 }
 
@@ -87,47 +81,44 @@ fn update_scores(scores: &mut [usize], tree_size: usize) -> usize {
     score
 }
 
+fn find_scores<'a>(
+    row: impl Iterator<Item = ((usize, usize), &'a usize)> + 'a,
+) -> Vec<((usize, usize), usize)> {
+    let mut scores_acc = vec![0usize; 10];
+    let mut scores = Vec::<((usize, usize), usize)>::new();
+    for (coords, tree) in row {
+        let score = update_scores(&mut scores_acc, *tree);
+        scores.push((coords, score));
+    }
+    scores
+}
+
 fn part2(input: &str) -> usize {
-    let parsed = parse_input::<usize>(input);
+    let (parsed, x_len) = parse_input::<usize>(input);
     let mut trees = HashMap::<(usize, usize), usize>::new();
 
-    let mut scores = vec![0usize; 10];
-    let mut scores_rev = vec![0usize; 10];
+    let rows = row_iter_indexed(&parsed, x_len);
+    let columns = column_iter_indexed(&parsed, x_len);
 
-    for (j, row) in parsed.iter().enumerate() {
-        let len = row.len() - 1;
-        scores.splice(0..10, vec![0; 10]);
-        scores_rev.splice(0..10, vec![0; 10]);
-        // Right
-        for (i, tree) in row.iter().enumerate() {
-            let score = update_scores(&mut scores, *tree);
-            *trees.entry((i, j)).or_insert(1) *= score;
-        }
-        // Left
-        for (i, tree) in row.iter().rev().enumerate() {
-            let i = len - i;
-            let score = update_scores(&mut scores_rev, *tree);
-            *trees.entry((i, j)).or_insert(1) *= score;
-        }
-    }
+    //Right
+    rows.clone()
+        .flat_map(find_scores)
+        .for_each(|(k, score)| *trees.entry(k).or_insert(1) *= score);
+    // Left
+    rows.map(Iterator::rev)
+        .flat_map(find_scores)
+        .for_each(|(k, score)| *trees.entry(k).or_insert(1) *= score);
+    //Down
+    columns
+        .clone()
+        .flat_map(find_scores)
+        .for_each(|(k, score)| *trees.entry(k).or_insert(1) *= score);
+    // Up
+    columns
+        .map(Iterator::rev)
+        .flat_map(find_scores)
+        .for_each(|(k, score)| *trees.entry(k).or_insert(1) *= score);
 
-    let parsed = transpose(parsed);
-    for (i, col) in parsed.iter().enumerate() {
-        let len = col.len() - 1;
-        scores.splice(0..10, vec![0; 10]);
-        scores_rev.splice(0..10, vec![0; 10]);
-        // Down
-        for (j, tree) in col.iter().enumerate() {
-            let score = update_scores(&mut scores, *tree);
-            *trees.entry((i, j)).or_insert(1) *= score;
-        }
-        // Up
-        for (j, tree) in col.iter().rev().enumerate() {
-            let j = len - j;
-            let score = update_scores(&mut scores_rev, *tree);
-            *trees.entry((i, j)).or_insert(1) *= score;
-        }
-    }
     *trees.iter().max_by(|a, b| a.1.cmp(b.1)).unwrap().1
 }
 
