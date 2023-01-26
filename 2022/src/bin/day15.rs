@@ -144,10 +144,8 @@ fn part2(input: &str, max_coord: i64) -> i64 {
 
 fn main() {
     let input = fs::read_to_string("inputs/day15.txt").expect("Could not read input file");
-    let p1: Duration;
-    let part1 = aoc::bench!(p1, part1(&input, 2_000_000));
-    let p2: Duration;
-    let part2 = aoc::bench!(p2, part2(&input, 4_000_000));
+    aoc::bench!(part1(&input, 2_000_000), part1, p1);
+    aoc::bench!(part2(&input, 4_000_000), part2, p2);
     println!("Part 1: {part1} ({} us)", p1.as_micros());
     println!("Part 2: {part2} ({} us)", p2.as_micros());
 }
